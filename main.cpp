@@ -153,6 +153,8 @@ bool gameOver = false;
 bool gameStarted = false;
 int score = 0;
 unsigned int whiteTexture;
+std::vector<unsigned int> bgTextures;
+int currentBgIndex = 0;
 
 struct Bird {
     glm::vec3 position;
@@ -288,6 +290,13 @@ void processInput(GLFWwindow *window) {
         bird.reset();
         score = 0;
         pipes.clear();
+        
+        // Change background randomly
+        static std::uniform_int_distribution<int> bgDist(0, 100);
+        if (!bgTextures.empty()) {
+            currentBgIndex = bgDist(rng) % bgTextures.size();
+        }
+
         for (int i = 0; i < 5; i++) {
             pipes.emplace_back(PIPE_SPAWN_X + i * PIPE_DISTANCE, dist(rng));
         }
@@ -580,7 +589,14 @@ void RenderQuad(float x, float y, float w, float h, glm::vec3 color) {
 void RenderButton(Button& btn, double mx, double my) {
     glm::vec3 color = btn.isMouseOver(mx, my) ? btn.hoverColor : btn.color;
     RenderQuad(btn.x, btn.y, btn.w, btn.h, color);
-    RenderText(btn.text, btn.x + 10, btn.y + 10, 1.0f, glm::vec3(1.0f));
+    
+    // Approximate text centering
+    float charWidth = 15.0f; // Approx width per character at scale 1.0
+    float textWidth = btn.text.length() * charWidth;
+    float textX = btn.x + (btn.w - textWidth) / 2.0f;
+    float textY = btn.y + (btn.h / 2.0f) - 5.0f; // Vertical adjustment
+
+    RenderText(btn.text, textX, textY, 1.0f, glm::vec3(1.0f));
 }
 
 int main() {
@@ -630,7 +646,19 @@ int main() {
 
     // Load Textures
     stbi_set_flip_vertically_on_load(true);
-    unsigned int bgTexture = loadTexture("Resources/FlappyBird/sky/46888871-624a3900-ce7f-11e8-808e-99fd90c8a3f4.png");
+    
+    // Backgrounds List - Add your new file paths here!
+    std::vector<std::string> bgPaths = {
+        "Resources/FlappyBird/sky/sky1.png",
+        "Resources/FlappyBird/sky/sky2.jpg",
+        "Resources/FlappyBird/sky/sky4.png"
+    };
+
+    for (const auto& path : bgPaths) {
+        unsigned int tex = loadTexture(path.c_str());
+        bgTextures.push_back(tex);
+    }
+    
     unsigned int pipeTexture = loadTexture("Resources/FlappyBird/pipe/Pipe.png");
     
     // Load Bird Model
@@ -650,8 +678,8 @@ int main() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     // UI Elements
-    Button startBtn = {350, 280, 100, 40, "Start", glm::vec3(0.0f, 0.8f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
-    Button restartBtn = {340, 280, 120, 40, "Restart", glm::vec3(0.0f, 0.8f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
+    Button startBtn = {300, 250, 200, 60, "START", glm::vec3(0.2f, 0.6f, 0.2f), glm::vec3(0.3f, 0.8f, 0.3f)};
+    Button restartBtn = {300, 250, 200, 60, "RESTART", glm::vec3(0.8f, 0.2f, 0.2f), glm::vec3(1.0f, 0.3f, 0.3f)};
 
     // Game State
     rng.seed(time(0));
@@ -662,12 +690,21 @@ int main() {
     }
 
     float lastFrame = 0.0f;
+    float lastBgChangeTime = 0.0f;
 
     // Render Loop
     while (!glfwWindowShouldClose(window)) {
         float currentFrame = glfwGetTime();
         float deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+
+        // Auto-change background every 10 seconds
+        if (currentFrame - lastBgChangeTime >= 10.0f) {
+            if (!bgTextures.empty()) {
+                currentBgIndex = (currentBgIndex + 1) % bgTextures.size();
+            }
+            lastBgChangeTime = currentFrame;
+        }
 
         processInput(window);
 
@@ -716,10 +753,19 @@ int main() {
 
         glUseProgram(shaderProgram);
 
-        // Camera/View
-        glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 10.0f), 
-                                     glm::vec3(0.0f, 0.0f, 0.0f), 
+        // Camera/View (Smooth Follow)
+        static float cameraY = 0.0f;
+        float targetY = bird.position.y;
+        // Clamp camera so it doesn't go too wild
+        if (targetY < -3.0f) targetY = -3.0f;
+        if (targetY > 3.0f) targetY = 3.0f;
+        
+        cameraY = glm::mix(cameraY, targetY, 2.0f * deltaTime); // Smooth lerp
+
+        glm::mat4 view = glm::lookAt(glm::vec3(0.0f, cameraY, 14.0f), 
+                                     glm::vec3(0.0f, cameraY, 0.0f), 
                                      glm::vec3(0.0f, 1.0f, 0.0f));
+        
         glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         
         unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
@@ -734,24 +780,24 @@ int main() {
 
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniform3f(lightColorLoc, 1.0f, 1.0f, 1.0f);
-        glUniform3f(lightPosLoc, 5.0f, 5.0f, 10.0f);
-        glUniform3f(viewPosLoc, 0.0f, 0.0f, 10.0f);
+        glUniform3f(lightColorLoc, 1.0f, 0.95f, 0.9f); // Warm sunlight
+        glUniform3f(lightPosLoc, 5.0f, 10.0f + cameraY, 10.0f); // Light follows camera Y
+        glUniform3f(viewPosLoc, 0.0f, cameraY, 14.0f);
 
         glBindVertexArray(VAO);
 
         // Draw Background
-        glBindTexture(GL_TEXTURE_2D, bgTexture);
+        glBindTexture(GL_TEXTURE_2D, bgTextures[currentBgIndex]);
         glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f);
         
         // Scroll background
-        float bgScroll = currentFrame * 0.1f;
+        float bgScroll = currentFrame * 0.05f; // Slower background for parallax
         glUniform2f(texOffsetLoc, bgScroll, 0.0f);
         glUniform2f(texScaleLoc, 1.0f, 1.0f);
 
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, -5.0f)); // Behind everything
-        model = glm::scale(model, glm::vec3(30.0f, 20.0f, 1.0f));
+        model = glm::translate(model, glm::vec3(0.0f, cameraY * 0.8f, -10.0f)); // Parallax Y movement
+        model = glm::scale(model, glm::vec3(50.0f, 35.0f, 1.0f)); // Bigger background
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glDrawArrays(GL_TRIANGLES, 0, 36);
 
@@ -765,7 +811,15 @@ int main() {
         for (const auto& mesh : birdMeshes) {
             model = glm::mat4(1.0f);
             model = glm::translate(model, bird.position);
-            model = glm::rotate(model, glm::radians(bird.rotation), glm::vec3(0.0f, 0.0f, 1.0f));
+            
+            // Add a slight tilt based on velocity for "aerodynamics"
+            float tilt = bird.rotation;
+            model = glm::rotate(model, glm::radians(tilt), glm::vec3(0.0f, 0.0f, 1.0f));
+            
+            // Add a slight bank when moving up/down (3D effect)
+            float bank = bird.velocity * -2.0f; 
+            model = glm::rotate(model, glm::radians(bank), glm::vec3(1.0f, 0.0f, 0.0f));
+
             // Adjust scale if needed. GLTF units are usually meters.
             // If the bird is too big/small, adjust here.
             model = glm::scale(model, glm::vec3(0.2f)); // Guessing scale
@@ -826,6 +880,7 @@ int main() {
         }
 
         if (!gameStarted) {
+            RenderText("FLAPPY BIRD 3D", 250, 400, 1.0f, glm::vec3(1.0f, 1.0f, 1.0f));
             RenderButton(startBtn, mx, my);
             if (click && startBtn.isMouseOver(mx, my)) {
                 gameStarted = true;
@@ -842,6 +897,13 @@ int main() {
                 bird.reset();
                 score = 0;
                 pipes.clear();
+                
+                // Change background randomly
+                static std::uniform_int_distribution<int> bgDist(0, 100);
+                if (!bgTextures.empty()) {
+                    currentBgIndex = bgDist(rng) % bgTextures.size();
+                }
+
                 for (int i = 0; i < 5; i++) {
                     pipes.emplace_back(PIPE_SPAWN_X + i * PIPE_DISTANCE, dist(rng));
                 }
