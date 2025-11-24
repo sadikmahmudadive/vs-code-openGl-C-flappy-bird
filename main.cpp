@@ -456,10 +456,10 @@ const char* textFragmentShaderSource = R"(
     in vec2 TexCoords;
     out vec4 color;
     uniform sampler2D text;
-    uniform vec3 textColor;
+    uniform vec4 textColor;
     void main() {
         vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);
-        color = vec4(textColor, 1.0) * sampled;
+        color = textColor * sampled;
     }
 )";
 
@@ -508,9 +508,9 @@ void initTextRenderer(const char* fontPath) {
     glBindVertexArray(0);
 }
 
-void RenderText(std::string text, float x, float y, float scale, glm::vec3 color) {
+void RenderText(std::string text, float x, float y, float scale, glm::vec4 color) {
     glUseProgram(textShaderProgram);
-    glUniform3f(glGetUniformLocation(textShaderProgram, "textColor"), color.x, color.y, color.z);
+    glUniform4f(glGetUniformLocation(textShaderProgram, "textColor"), color.x, color.y, color.z, color.w);
     glUniform1i(glGetUniformLocation(textShaderProgram, "text"), 0);
     
     glm::mat4 projection = glm::ortho(0.0f, (float)SCR_WIDTH, (float)SCR_HEIGHT, 0.0f);
@@ -547,17 +547,20 @@ void RenderText(std::string text, float x, float y, float scale, glm::vec3 color
 struct Button {
     float x, y, w, h;
     std::string text;
-    glm::vec3 color;
-    glm::vec3 hoverColor;
+    glm::vec4 color;
+    glm::vec4 hoverColor;
     
     bool isMouseOver(double mx, double my) {
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 };
 
-void RenderQuad(float x, float y, float w, float h, glm::vec3 color) {
+void RenderQuad(float x, float y, float w, float h, glm::vec4 color); // Forward declaration if needed, but definition is below
+
+
+void RenderQuad(float x, float y, float w, float h, glm::vec4 color) {
     glUseProgram(textShaderProgram);
-    glUniform3f(glGetUniformLocation(textShaderProgram, "textColor"), color.x, color.y, color.z);
+    glUniform4f(glGetUniformLocation(textShaderProgram, "textColor"), color.x, color.y, color.z, color.w);
     glUniform1i(glGetUniformLocation(textShaderProgram, "text"), 0);
     
     glm::mat4 projection = glm::ortho(0.0f, (float)SCR_WIDTH, (float)SCR_HEIGHT, 0.0f);
@@ -586,9 +589,40 @@ void RenderQuad(float x, float y, float w, float h, glm::vec3 color) {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+void RenderBorder(float x, float y, float w, float h, glm::vec4 color) {
+    glUseProgram(textShaderProgram);
+    glUniform4f(glGetUniformLocation(textShaderProgram, "textColor"), color.x, color.y, color.z, color.w);
+    glUniform1i(glGetUniformLocation(textShaderProgram, "text"), 0);
+    
+    glm::mat4 projection = glm::ortho(0.0f, (float)SCR_WIDTH, (float)SCR_HEIGHT, 0.0f);
+    glUniformMatrix4fv(glGetUniformLocation(textShaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, whiteTexture);
+    glBindVertexArray(textVAO);
+
+    float vertices[4][4] = {
+        { x,     y,       0.0f, 0.0f },
+        { x + w, y,       1.0f, 0.0f },
+        { x + w, y + h,   1.0f, 1.0f },
+        { x,     y + h,   0.0f, 1.0f }
+    };
+    
+    glBindBuffer(GL_ARRAY_BUFFER, textVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glLineWidth(2.0f);
+    glDrawArrays(GL_LINE_LOOP, 0, 4);
+    glLineWidth(1.0f);
+    
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 void RenderButton(Button& btn, double mx, double my) {
-    glm::vec3 color = btn.isMouseOver(mx, my) ? btn.hoverColor : btn.color;
+    glm::vec4 color = btn.isMouseOver(mx, my) ? btn.hoverColor : btn.color;
     RenderQuad(btn.x, btn.y, btn.w, btn.h, color);
+    RenderBorder(btn.x, btn.y, btn.w, btn.h, glm::vec4(1.0f));
     
     // Approximate text centering
     float charWidth = 15.0f; // Approx width per character at scale 1.0
@@ -596,7 +630,7 @@ void RenderButton(Button& btn, double mx, double my) {
     float textX = btn.x + (btn.w - textWidth) / 2.0f;
     float textY = btn.y + (btn.h / 2.0f) - 5.0f; // Vertical adjustment
 
-    RenderText(btn.text, textX, textY, 1.0f, glm::vec3(1.0f));
+    RenderText(btn.text, textX, textY, 1.0f, glm::vec4(1.0f));
 }
 
 int main() {
@@ -678,8 +712,8 @@ int main() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     // UI Elements
-    Button startBtn = {300, 250, 200, 60, "START", glm::vec3(0.2f, 0.6f, 0.2f), glm::vec3(0.3f, 0.8f, 0.3f)};
-    Button restartBtn = {300, 250, 200, 60, "RESTART", glm::vec3(0.8f, 0.2f, 0.2f), glm::vec3(1.0f, 0.3f, 0.3f)};
+    Button startBtn = {300, 250, 200, 60, "START", glm::vec4(0.2f, 0.6f, 0.2f, 0.8f), glm::vec4(0.3f, 0.8f, 0.3f, 0.9f)};
+    Button restartBtn = {300, 250, 200, 60, "RESTART", glm::vec4(0.8f, 0.2f, 0.2f, 0.8f), glm::vec4(1.0f, 0.3f, 0.3f, 0.9f)};
 
     // Game State
     rng.seed(time(0));
@@ -880,16 +914,16 @@ int main() {
         }
 
         if (!gameStarted) {
-            RenderText("FLAPPY BIRD 3D", 250, 400, 1.0f, glm::vec3(1.0f, 1.0f, 1.0f));
+            RenderText("FLAPPY BIRD 3D", 250, 400, 1.0f, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
             RenderButton(startBtn, mx, my);
             if (click && startBtn.isMouseOver(mx, my)) {
                 gameStarted = true;
                 bird.jump();
             }
         } else if (gameOver) {
-            RenderText("GAME OVER", 300, 350, 1.0f, glm::vec3(1.0f, 0.0f, 0.0f));
-            RenderText("Score: " + std::to_string(score), 350, 320, 1.0f, glm::vec3(1.0f));
-            RenderText("Press R to Restart", 300, 250, 0.5f, glm::vec3(1.0f));
+            RenderText("GAME OVER", 300, 350, 1.0f, glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+            RenderText("Score: " + std::to_string(score), 350, 320, 1.0f, glm::vec4(1.0f));
+            RenderText("Press R to Restart", 300, 250, 0.5f, glm::vec4(1.0f));
             RenderButton(restartBtn, mx, my);
             if (click && restartBtn.isMouseOver(mx, my)) {
                 gameOver = false;
@@ -909,7 +943,7 @@ int main() {
                 }
             }
         } else {
-            RenderText("Score: " + std::to_string(score), 10, 30, 1.0f, glm::vec3(1.0f));
+            RenderText("Score: " + std::to_string(score), 10, 30, 1.0f, glm::vec4(1.0f));
         }
         glDisable(GL_BLEND);
 
